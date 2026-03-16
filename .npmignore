@@ -1,0 +1,24 @@
+# Development files
+.git
+.gitignore
+.idea
+*.log
+*.md
+!README.md
+
+# Test files
+test/
+tests/
+*.test.js
+
+# Build files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+.env
+.env.local

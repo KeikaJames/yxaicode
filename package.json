@@ -1,24 +1,36 @@
 {
-  "name": "yxcode",
-  "version": "1.0.0",
+  "name": "@yxai/code",
+  "version": "0.0.1",
   "description": "意心Code - Claude Code 可视化交互界面",
   "type": "module",
   "main": "server.js",
   "bin": {
-    "yxcode": "server.js"
+    "yxaiCode": "server.js"
   },
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
   },
+  "files": [
+    "server.js",
+    "public"
+  ],
   "keywords": [
     "claude-code",
     "ai",
     "ui",
-    "anthropic"
+    "anthropic",
+    "yxai"
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/ccnetcore/yxcode.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
     "express": "^4.21.0",

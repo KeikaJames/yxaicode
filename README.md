@@ -1,39 +1,77 @@
-# yxcode
+# @yxai/code
 
-#### 介绍
-{**以下是 Gitee 平台说明，您可以替换此简介**
-Gitee 是 OSCHINA 推出的基于 Git 的代码托管平台（同时支持 SVN）。专为开发者提供稳定、高效、安全的云端软件开发协作平台
-无论是个人、团队、或是企业，都能够用 Gitee 实现代码托管、项目管理、协作开发。企业项目请看 [https://gitee.com/enterprises](https://gitee.com/enterprises)}
+意心Code - Claude Code 可视化交互界面
 
-#### 软件架构
-软件架构说明
+一个基于 Express + WebSocket + Claude Agent SDK 的可视化交互界面，让你可以通过 Web 界面与 Claude AI 进行交互。
 
+## 特性
 
-#### 安装教程
+- 🚀 极简架构：Express 静态服务 + WebSocket + Claude Agent SDK
+- 🎨 可视化界面：友好的 Web UI
+- 🔌 WebSocket 实时通信
+- 📦 零构建：仅依赖 Node.js，无需构建工具
+- 🌐 自动打开浏览器
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+## 安装
 
-#### 使用说明
+```bash
+npm install -g @yxai/code
+```
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+## 使用
 
-#### 参与贡献
+安装后，直接运行命令：
 
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
+```bash
+yxaiCode
+```
 
+程序会自动：
+1. 启动服务器（默认端口 3456）
+2. 打开浏览器访问 http://localhost:3456
 
-#### 特技
+### 命令行选项
 
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+```bash
+# 显示帮助信息
+yxaiCode --help
+
+# 显示版本号
+yxaiCode --version
+
+# 指定端口号
+yxaiCode --port 8080
+```
+
+### 环境变量
+
+```bash
+# 使用环境变量指定端口
+PORT=8080 yxaiCode
+```
+
+## 系统要求
+
+- Node.js >= 18.0.0
+
+## 开发
+
+```bash
+# 克隆仓库
+git clone https://gitee.com/ccnetcore/yxcode.git
+cd yxcode
+
+# 安装依赖
+npm install
+
+# 本地测试
+npm link
+yxaiCode
+
+# 取消链接
+npm unlink -g @yxai/code
+```
+
+## 许可证
+
+MIT

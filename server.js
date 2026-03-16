@@ -15,12 +15,48 @@ import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { promises as fs } from 'fs';
+import { exec } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// --- CLI Arguments ---
+const args = process.argv.slice(2);
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(`
+意心Code (yxcode) - Claude Code 可视化交互界面
+
+用法:
+  yxaiCode [选项]
+
+选项:
+  -h, --help     显示帮助信息
+  -v, --version  显示版本号
+  -p, --port     指定端口号 (默认: 3456)
+
+环境变量:
+  PORT           自定义端口号
+
+示例:
+  yxaiCode
+  yxaiCode --port 8080
+  PORT=8080 yxaiCode
+`);
+  process.exit(0);
+}
+
+if (args.includes('--version') || args.includes('-v')) {
+  const pkg = JSON.parse(await fs.readFile(path.join(__dirname, 'package.json'), 'utf8'));
+  console.log(pkg.version);
+  process.exit(0);
+}
+
 // --- Config ---
-const PORT = parseInt(process.env.PORT, 10) || 3456;
+let PORT = parseInt(process.env.PORT, 10) || 3456;
+const portIndex = args.findIndex(arg => arg === '--port' || arg === '-p');
+if (portIndex !== -1 && args[portIndex + 1]) {
+  PORT = parseInt(args[portIndex + 1], 10);
+}
 const API_BASE_URL = 'https://yxai.chat';
 
 // --- Session & Permission State ---
@@ -510,6 +546,30 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, () => {
+  const url = `http://localhost:${PORT}`;
   console.log(`\n  意心Code (yxcode) 已启动`);
-  console.log(`  http://localhost:${PORT}\n`);
+  console.log(`  ${url}\n`);
+
+  // Auto-open browser
+  const open = (url) => {
+    const cmd = process.platform === 'win32' ? `start ${url}`
+      : process.platform === 'darwin' ? `open ${url}`
+      : `xdg-open ${url}`;
+    exec(cmd);
+  };
+
+  // Open browser after a short delay
+  setTimeout(() => open(url), 1000);
+});
+
+// Handle port in use error
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n  错误: 端口 ${PORT} 已被占用`);
+    console.error(`  请尝试使用其他端口: yxaiCode --port 8080\n`);
+    process.exit(1);
+  } else {
+    console.error(`\n  服务器错误: ${err.message}\n`);
+    process.exit(1);
+  }
 });

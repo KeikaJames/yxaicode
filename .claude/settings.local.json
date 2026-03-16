@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(cd:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(yxai-code:*)",
+      "Bash(yxaiCode --help)",
+      "Bash(yxaiCode --version)"
     ]
   }
 }
