@@ -259,11 +259,6 @@ button { padding:8px 16px; border:none; border-radius:var(--radius); cursor:poin
 .file-viewer-content { flex:1; overflow:auto; padding:16px; }
 .file-viewer-content pre { margin:0; white-space:pre-wrap; font-size:13px; font-family:'Cascadia Code','Fira Code',monospace; line-height:1.5; }
 
-/* Token Donut */
-#tokenDonut { display:inline-flex; align-items:center; gap:6px; }
-#tokenDonut svg { vertical-align:middle; }
-#tokenDonut .donut-label { font-size:11px; color:var(--fg2); }
-
 /* Folder Browser Modal */
 .folder-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:150; display:flex; align-items:center; justify-content:center; }
 .folder-overlay.hidden { display:none; }
@@ -351,6 +346,11 @@ button { padding:8px 16px; border:none; border-radius:var(--radius); cursor:poin
           <div id="setModelDropdown" class="model-select-dropdown"></div>
         </div>
       </div>
+      <div class="sg">
+        <label>权限管理</label>
+        <button id="clearPermissionsBtn" class="btn-secondary" style="width:100%;">清除已记住的权限</button>
+        <div class="hint" id="permissionCount">已记住 0 条权限规则</div>
+      </div>
       <div class="settings-footer"><span id="settingsSaved" class="settings-saved">已保存</span><button id="settingsSaveBtn" class="btn-primary">保存</button><button id="settingsCloseBtn" class="btn-settings">关闭</button></div>
     </div>
   </div>
@@ -365,7 +365,7 @@ button { padding:8px 16px; border:none; border-radius:var(--radius); cursor:poin
         <button id="newBtn" class="btn-secondary">新会话</button>
       </div>
     </div>
-    <div class="input-footer"><span id="tokenInfo"></span><span id="tokenDonut"></span><span id="sessionInfo"></span></div>
+    <div class="input-footer"><span id="sessionInfo"></span></div>
   </footer>
   </div><!-- end #mainArea -->
 
@@ -427,11 +427,12 @@ const modelSelectDisplay=$('#modelSelectDisplay'), modelSelectDropdown=$('#model
   permSelect=$('#permSelect'), girlfriendMode=$('#girlfriendMode'), cwdInput=$('#cwdInput'),
   connStatus=$('#connStatus'), messagesEl=$('#messages'), permBanner=$('#permBanner'),
   promptInput=$('#promptInput'), sendBtn=$('#sendBtn'), abortBtn=$('#abortBtn'),
-  newBtn=$('#newBtn'), tokenInfo=$('#tokenInfo'), sessionInfo=$('#sessionInfo'),
+  newBtn=$('#newBtn'), sessionInfo=$('#sessionInfo'),
   settingsBtn=$('#settingsBtn'), settingsOverlay=$('#settingsOverlay'),
   setApiKey=$('#setApiKey'),
   settingsSaveBtn=$('#settingsSaveBtn'),
   settingsCloseBtn=$('#settingsCloseBtn'), settingsSaved=$('#settingsSaved'),
+  clearPermissionsBtn=$('#clearPermissionsBtn'), permissionCount=$('#permissionCount'),
   sidebar=$('#sidebar'), sidebarBody=$('#sidebarBody'),
   sidebarToggle=$('#sidebarToggle'), sidebarCloseBtn=$('#sidebarCloseBtn'),
   newSessionSideBtn=$('#newSessionSideBtn'),
@@ -440,7 +441,6 @@ const modelSelectDisplay=$('#modelSelectDisplay'), modelSelectDropdown=$('#model
   filePanelToggle=$('#filePanelToggle'), filePanelCloseBtn=$('#filePanelCloseBtn'),
   fileRefreshBtn=$('#fileRefreshBtn'),
   fileViewer=$('#fileViewer'), fvPath=$('#fvPath'), fvContent=$('#fvContent'), fvCloseBtn=$('#fvCloseBtn'),
-  tokenDonut=$('#tokenDonut'),
   cwdBrowseBtn=$('#cwdBrowseBtn'),
   folderBrowser=$('#folderBrowser'), fbPath=$('#fbPath'), fbBody=$('#fbBody'),
   fbSelectBtn=$('#fbSelectBtn'), fbCancelBtn=$('#fbCancelBtn'), fbCloseBtn=$('#fbCloseBtn'),
@@ -452,6 +452,7 @@ let expandedProjects = new Set(); // Fix 6: track expanded sidebar projects
 let selectedModel = null; // Current selected model object
 let selectedSettingsModel = null; // Settings model selection
 let modelsData = []; // All available models
+let rememberedPermissions = new Set(); // Remembered permission rules
 
 // ========== Slash Commands & File Mentions ==========
 let fileListCache = null;
@@ -740,6 +741,13 @@ const TOOL_ICON = {
   cwdInput.value = localStorage.getItem('yxcode_cwd') || '';
   setApiKey.value = localStorage.getItem('yxcode_apiKey') || '';
   girlfriendMode.checked = localStorage.getItem('yxcode_girlfriendMode') === 'true';
+
+  // Load remembered permissions
+  try {
+    const saved = localStorage.getItem('yxcode_rememberedPermissions');
+    if (saved) rememberedPermissions = new Set(JSON.parse(saved));
+  } catch(e) { console.error('[load permissions]', e); }
+
   cwdInput.addEventListener('change', () => localStorage.setItem('yxcode_cwd', cwdInput.value));
   girlfriendMode.addEventListener('change', () => {
     localStorage.setItem('yxcode_girlfriendMode', girlfriendMode.checked);
@@ -748,6 +756,10 @@ const TOOL_ICON = {
   settingsCloseBtn.addEventListener('click', () => settingsOverlay.classList.add('hidden'));
   settingsOverlay.addEventListener('click', e => { if(e.target===settingsOverlay) settingsOverlay.classList.add('hidden'); });
   settingsSaveBtn.addEventListener('click', saveSettings);
+  clearPermissionsBtn.addEventListener('click', clearRememberedPermissions);
+
+  // Update permission count when opening settings
+  settingsBtn.addEventListener('click', updatePermissionCount);
   // If no API key configured, auto-open settings
   if (!localStorage.getItem('yxcode_apiKey')) settingsOverlay.classList.remove('hidden');
   connectWS();
@@ -764,6 +776,22 @@ function saveSettings() {
   }
   settingsSaved.classList.add('show');
   setTimeout(() => settingsSaved.classList.remove('show'), 2000);
+}
+
+function clearRememberedPermissions() {
+  if (rememberedPermissions.size === 0) {
+    appendSystemMsg('没有已记住的权限规则');
+    return;
+  }
+  const count = rememberedPermissions.size;
+  rememberedPermissions.clear();
+  localStorage.removeItem('yxcode_rememberedPermissions');
+  updatePermissionCount();
+  appendSystemMsg(`已清除 ${count} 条权限规则`);
+}
+
+function updatePermissionCount() {
+  permissionCount.textContent = `已记住 ${rememberedPermissions.size} 条权限规则`;
 }
 
 // --- WebSocket ---
@@ -787,7 +815,6 @@ function handleMsg(msg) {
     case 'session-aborted': finishStreaming(); setStreaming(false); appendSystemMsg('会话已停止'); break;
     case 'permission-request': showPermission(msg); break;
     case 'permission-cancelled': permBanner.classList.add('hidden'); break;
-    case 'token-usage': tokenInfo.textContent=`Tokens: ${(msg.used||0).toLocaleString()}`; renderTokenDonut(msg.used||0, msg.total||200000); break;
   }
 }
 
@@ -1185,6 +1212,13 @@ function showPermission(msg) {
     : msg.input?.command || msg.input?.file_path || JSON.stringify(msg.input,null,2);
   const rule = getPermRule(msg.toolName, msg.input);
 
+  // Check if this rule is already remembered
+  if (rule && rememberedPermissions.has(rule)) {
+    console.log('[auto-allow]', rule);
+    wsSend({ type:'permission-response', requestId:msg.requestId, allow:true });
+    return;
+  }
+
   permBanner.innerHTML = `
     <div class="perm-title">🔒 权限请求</div>
     <div class="perm-tool">工具: <code>${escHtml(msg.toolName)}</code></div>
@@ -1201,9 +1235,17 @@ function showPermission(msg) {
   permBanner.querySelectorAll('.perm-btns button').forEach(btn => {
     btn.addEventListener('click', () => {
       const rid = btn.dataset.rid, act = btn.dataset.act;
-      if(act==='once') wsSend({ type:'permission-response', requestId:rid, allow:true });
-      else if(act==='remember') wsSend({ type:'permission-response', requestId:rid, allow:true, rememberEntry:btn.dataset.rule });
-      else wsSend({ type:'permission-response', requestId:rid, allow:false, message:'User denied' });
+      if(act==='once') {
+        wsSend({ type:'permission-response', requestId:rid, allow:true });
+      } else if(act==='remember') {
+        const ruleToRemember = btn.dataset.rule;
+        rememberedPermissions.add(ruleToRemember);
+        localStorage.setItem('yxcode_rememberedPermissions', JSON.stringify([...rememberedPermissions]));
+        wsSend({ type:'permission-response', requestId:rid, allow:true });
+        appendSystemMsg(`已记住权限规则: ${ruleToRemember}`);
+      } else {
+        wsSend({ type:'permission-response', requestId:rid, allow:false, message:'User denied' });
+      }
       permBanner.classList.add('hidden');
     });
   });
@@ -1378,7 +1420,7 @@ function send() {
   setStreaming(true);
 }
 function abort() { if(sessionId) wsSend({type:'abort-session',sessionId}); }
-function newSession() { sessionId=null; messagesEl.innerHTML=''; sessionInfo.textContent=''; tokenInfo.textContent=''; tokenDonut.innerHTML=''; finishStreaming(); setStreaming(false); renderSidebar(); }
+function newSession() { sessionId=null; messagesEl.innerHTML=''; sessionInfo.textContent=''; finishStreaming(); setStreaming(false); renderSidebar(); }
 function setStreaming(v) {
   isStreaming=v; sendBtn.disabled=v; abortBtn.classList.toggle('hidden',!v); connStatus.className='status-dot '+(v?'busy':'online');
   if(v) showLoading(); else hideLoading();
@@ -1534,27 +1576,36 @@ function decodeProjectName(name) {
 }
 
 function locateCurrentSession() {
-  if (!sessionId) {
-    appendSystemMsg('当前没有活动会话', 'error');
+  const cwd = cwdInput.value.trim();
+  if (!cwd) {
+    appendSystemMsg('请先设置工作目录', 'error');
     return;
   }
 
-  // Find the project containing current session
+  // Encode cwd to project name format (e.g., E:\code\github -> E--code-github)
+  const encodedCwd = encodeProjectName(cwd);
+
+  // Find the project matching current cwd
   let targetProject = null;
   for (const proj of projectsData) {
-    if (proj.sessions.some(s => s.id === sessionId)) {
-      targetProject = proj.name;
+    if (proj.name === encodedCwd) {
+      targetProject = proj;
       break;
     }
   }
 
   if (!targetProject) {
-    appendSystemMsg('未找到当前会话所属项目', 'error');
+    appendSystemMsg('当前工作目录没有对应的会话记录', 'error');
+    return;
+  }
+
+  if (targetProject.sessions.length === 0) {
+    appendSystemMsg('当前项目没有会话记录', 'error');
     return;
   }
 
   // Expand the project
-  expandedProjects.add(targetProject);
+  expandedProjects.add(targetProject.name);
 
   // Re-render sidebar
   renderSidebar();
@@ -1562,13 +1613,38 @@ function locateCurrentSession() {
   // Expand sidebar if collapsed
   sidebar.classList.remove('collapsed');
 
-  // Scroll to active session
+  // Scroll to the first (latest) session
   setTimeout(() => {
-    const activeItem = sidebarBody.querySelector('.session-item.active');
-    if (activeItem) {
-      activeItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const projectGroups = sidebarBody.querySelectorAll('.project-group');
+    for (const group of projectGroups) {
+      const nameEl = group.querySelector('.project-name');
+      if (nameEl && nameEl.textContent.includes(decodeProjectName(targetProject.name))) {
+        const firstSession = group.querySelector('.session-item');
+        if (firstSession) {
+          firstSession.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Highlight briefly
+          firstSession.style.background = 'var(--accent)';
+          firstSession.style.transition = 'background 0.5s';
+          setTimeout(() => {
+            firstSession.style.background = '';
+          }, 1000);
+        }
+        break;
+      }
     }
   }, 100);
+}
+
+function encodeProjectName(cwdPath) {
+  // Convert path like E:\code\github to E--code-github
+  const normalized = cwdPath.replace(/\//g, '\\');
+  const match = normalized.match(/^([A-Z]):\\(.+)$/);
+  if (match) {
+    const drive = match[1];
+    const pathPart = match[2].replace(/\\/g, '-');
+    return `${drive}--${pathPart}`;
+  }
+  return normalized.replace(/\\/g, '-');
 }
 
 function timeAgo(dateStr) {
@@ -1729,22 +1805,6 @@ async function browseTo(targetPath) {
 }
 
 // ========== Token Donut ==========
-function renderTokenDonut(used, total) {
-  if(!total) total = 200000; // default context window
-  const pct = Math.min(used / total, 1);
-  const color = pct < 0.5 ? 'var(--accent)' : pct < 0.75 ? 'var(--orange)' : 'var(--red)';
-  const r = 14, circ = 2 * Math.PI * r;
-  const offset = circ * (1 - pct);
-  tokenDonut.innerHTML = `
-    <svg width="36" height="36" viewBox="0 0 36 36">
-      <circle cx="18" cy="18" r="${r}" fill="none" stroke="var(--bg3)" stroke-width="4"/>
-      <circle cx="18" cy="18" r="${r}" fill="none" stroke="${color}" stroke-width="4"
-        stroke-dasharray="${circ}" stroke-dashoffset="${offset}"
-        stroke-linecap="round" transform="rotate(-90 18 18)"/>
-      <text x="18" y="20" text-anchor="middle" fill="var(--fg2)" font-size="8">${Math.round(pct*100)}%</text>
-    </svg>
-    <span class="donut-label">${(used/1000).toFixed(1)}K / ${(total/1000).toFixed(0)}K</span>`;
-}
 
 // Load projects on init
 loadProjects();
