@@ -21,13 +21,7 @@ const __dirname = path.dirname(__filename);
 
 // --- Config ---
 const PORT = parseInt(process.env.PORT, 10) || 3456;
-
-const CLAUDE_MODELS = [
-  { value: 'sonnet', label: 'Sonnet' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'haiku', label: 'Haiku' },
-  { value: 'sonnet[1m]', label: 'Sonnet [1M]' },
-];
+const API_BASE_URL = 'https://yxai.chat';
 
 // --- Session & Permission State ---
 const activeSessions = new Map();
@@ -73,13 +67,13 @@ function resolveApproval(requestId, decision) {
 async function runQuery(prompt, options, ws) {
   let sessionId = options.sessionId || null;
 
-  // Inject API Base URL and API Key into env before query
+  // Always use fixed base URL, only inject API Key from options
   const prevBaseUrl = process.env.ANTHROPIC_BASE_URL;
   const prevApiKey = process.env.ANTHROPIC_API_KEY;
-  if (options.apiBaseUrl) {
-    process.env.ANTHROPIC_BASE_URL = options.apiBaseUrl;
-    console.log(`[config] ANTHROPIC_BASE_URL = ${options.apiBaseUrl}`);
-  }
+
+  process.env.ANTHROPIC_BASE_URL = API_BASE_URL;
+  console.log(`[config] ANTHROPIC_BASE_URL = ${API_BASE_URL}`);
+
   if (options.apiKey) {
     process.env.ANTHROPIC_API_KEY = options.apiKey;
     console.log(`[config] ANTHROPIC_API_KEY = ***${options.apiKey.slice(-6)}`);
@@ -139,6 +133,8 @@ async function runQuery(prompt, options, ws) {
 
   try {
     for await (const msg of qi) {
+      // Debug: log message types for streaming analysis
+      console.log('[SDK msg]', msg.type, msg.subtype || '', msg.role || '', Array.isArray(msg.content) ? `content[${msg.content.length}]` : '');
       // Capture session id
       if (msg.session_id && !sessionId) {
         sessionId = msg.session_id;
@@ -167,14 +163,10 @@ async function runQuery(prompt, options, ws) {
   } finally {
     if (sessionId) activeSessions.delete(sessionId);
     // Restore env vars
-    if (options.apiBaseUrl) {
-      if (prevBaseUrl !== undefined) process.env.ANTHROPIC_BASE_URL = prevBaseUrl;
-      else delete process.env.ANTHROPIC_BASE_URL;
-    }
-    if (options.apiKey) {
-      if (prevApiKey !== undefined) process.env.ANTHROPIC_API_KEY = prevApiKey;
-      else delete process.env.ANTHROPIC_API_KEY;
-    }
+    if (prevBaseUrl !== undefined) process.env.ANTHROPIC_BASE_URL = prevBaseUrl;
+    else delete process.env.ANTHROPIC_BASE_URL;
+    if (prevApiKey !== undefined) process.env.ANTHROPIC_API_KEY = prevApiKey;
+    else delete process.env.ANTHROPIC_API_KEY;
   }
 }
 
@@ -194,13 +186,75 @@ async function loadMcpConfig(cwd) {
   } catch { return null; }
 }
 
+// --- Parse session info (Fix 4: scan full file for meaningful title) ---
+const SYSTEM_TEXT_RE = /^(<system-reminder>|<command-name>|<local-command-|Caveat:)/;
+
+function parseSessionInfo(raw) {
+  let summary = '', msgCount = 0;
+  const lines = raw.split('\n').filter(Boolean);
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line);
+      if (obj.type === 'human' || obj.type === 'user' || obj.type === 'assistant') msgCount++;
+      // Priority 1: summary type entry
+      if (!summary && obj.type === 'summary' && obj.summary) {
+        summary = obj.summary.slice(0, 50);
+      }
+      // Priority 2: first user message text (filtered)
+      if (!summary && (obj.type === 'human' || obj.type === 'user') && obj.message?.content) {
+        let text = '';
+        if (typeof obj.message.content === 'string') {
+          text = obj.message.content;
+        } else if (Array.isArray(obj.message.content)) {
+          text = obj.message.content
+            .filter(c => c.type === 'text' && c.text && !SYSTEM_TEXT_RE.test(c.text.trim()))
+            .map(c => c.text).join(' ');
+        }
+        text = text.trim();
+        if (text) summary = text.slice(0, 50);
+      }
+    } catch {}
+  }
+  return { summary, msgCount };
+}
+
 // --- Express + WebSocket ---
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API: list models
-app.get('/api/models', (_req, res) => res.json(CLAUDE_MODELS));
+// API: list models (proxy from external API)
+app.get('/api/models', async (_req, res) => {
+  try {
+    const https = await import('https');
+    const url = `${API_BASE_URL}/prod-api/model?ModelApiTypes=1&SkipCount=1&MaxResultCount=100`;
+    https.get(url, (apiRes) => {
+      let data = '';
+      apiRes.on('data', chunk => data += chunk);
+      apiRes.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const models = (json.items || []).map(item => ({
+            value: item.modelId,
+            label: item.name,
+            description: item.description,
+            icon: item.iconUrl,
+            provider: item.providerName,
+          }));
+          res.json(models);
+        } catch (e) {
+          console.error('[models API parse error]', e);
+          res.status(500).json({ error: 'Failed to parse models' });
+        }
+      });
+    }).on('error', (e) => {
+      console.error('[models API error]', e);
+      res.status(500).json({ error: e.message });
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // API: list projects (scan ~/.claude/projects/)
 app.get('/api/projects', async (_req, res) => {
@@ -218,21 +272,9 @@ app.get('/api/projects', async (_req, res) => {
         const fp = path.join(projDir, f);
         const stat = await fs.stat(fp).catch(() => null);
         if (!stat) continue;
-        let summary = '', msgCount = 0;
-        try {
-          const raw = await fs.readFile(fp, 'utf8');
-          const lines = raw.split('\n').filter(Boolean).slice(0, 20);
-          for (const line of lines) {
-            try {
-              const obj = JSON.parse(line);
-              msgCount++;
-              if (!summary && obj.type === 'human' && typeof obj.message?.content === 'string') {
-                summary = obj.message.content.slice(0, 100);
-              }
-            } catch {}
-          }
-        } catch {}
-        sessions.push({ id: f.replace('.jsonl', ''), file: f, summary, msgCount, mtime: stat.mtime });
+        const raw = await fs.readFile(fp, 'utf8').catch(() => '');
+        const info = parseSessionInfo(raw);
+        sessions.push({ id: f.replace('.jsonl', ''), file: f, summary: info.summary, msgCount: info.msgCount, mtime: stat.mtime });
       }
       sessions.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
       if (sessions.length) projects.push({ name: ent.name, sessions });
@@ -256,48 +298,103 @@ app.get('/api/projects/:name/sessions', async (req, res) => {
       const fp = path.join(projDir, f);
       const stat = await fs.stat(fp).catch(() => null);
       if (!stat) continue;
-      let summary = '', msgCount = 0;
-      try {
-        const raw = await fs.readFile(fp, 'utf8');
-        const lines = raw.split('\n').filter(Boolean).slice(0, 20);
-        for (const line of lines) {
-          try {
-            const obj = JSON.parse(line);
-            msgCount++;
-            if (!summary && obj.type === 'human' && typeof obj.message?.content === 'string') {
-              summary = obj.message.content.slice(0, 100);
-            }
-          } catch {}
-        }
-      } catch {}
-      sessions.push({ id: f.replace('.jsonl', ''), file: f, summary, msgCount, mtime: stat.mtime });
-    }
-    sessions.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
+        const raw = await fs.readFile(fp, 'utf8').catch(() => '');
+        const info = parseSessionInfo(raw);
+        sessions.push({ id: f.replace('.jsonl', ''), file: f, summary: info.summary, msgCount: info.msgCount, mtime: stat.mtime });
+      }
+      sessions.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
     res.json(sessions);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// API: messages for a session
+// API: messages for a session (Fix 1 + Fix 2 + Fix 7)
 app.get('/api/projects/:name/sessions/:id/messages', async (req, res) => {
   try {
     const fp = path.join(os.homedir(), '.claude', 'projects', req.params.name, req.params.id + '.jsonl');
     const raw = await fs.readFile(fp, 'utf8');
     const messages = [];
+    // Collect tool_results keyed by tool_use_id for association
+    const toolResults = new Map();
+
+    // First pass: collect tool_results from user messages
     for (const line of raw.split('\n').filter(Boolean)) {
       try {
         const obj = JSON.parse(line);
-        if (obj.type === 'human') {
-          const text = typeof obj.message?.content === 'string' ? obj.message.content
-            : Array.isArray(obj.message?.content) ? obj.message.content.map(c => c.text || '').join('') : '';
+        if ((obj.type === 'human' || obj.type === 'user') && Array.isArray(obj.message?.content)) {
+          for (const block of obj.message.content) {
+            if (block.type === 'tool_result' && block.tool_use_id) {
+              const txt = typeof block.content === 'string' ? block.content
+                : Array.isArray(block.content) ? block.content.map(c => c.text || '').join('') : '';
+              toolResults.set(block.tool_use_id, { tool_use_id: block.tool_use_id, content: txt, is_error: !!block.is_error });
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // Second pass: build messages with parts
+    for (const line of raw.split('\n').filter(Boolean)) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.type === 'human' || obj.type === 'user') {
+          let text = '';
+          if (typeof obj.message?.content === 'string') {
+            text = obj.message.content;
+          } else if (Array.isArray(obj.message?.content)) {
+            text = obj.message.content
+              .filter(c => c.type === 'text' && c.text && !SYSTEM_TEXT_RE.test(c.text.trim()))
+              .map(c => c.text).join('\n');
+          }
+          text = text.trim();
           if (text) messages.push({ role: 'user', content: text });
         } else if (obj.type === 'assistant') {
-          const text = typeof obj.message?.content === 'string' ? obj.message.content
-            : Array.isArray(obj.message?.content) ? obj.message.content.filter(c => c.type === 'text').map(c => c.text || '').join('\n') : '';
-          if (text) messages.push({ role: 'assistant', content: text });
+          const content = obj.message?.content;
+          const parts = [];
+          if (typeof content === 'string') {
+            if (content.trim()) parts.push({ type: 'text', text: content });
+          } else if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'text' && block.text?.trim()) {
+                parts.push({ type: 'text', text: block.text });
+              } else if (block.type === 'tool_use') {
+                parts.push({ type: 'tool_use', id: block.id, name: block.name, input: block.input });
+                // Attach associated tool_result
+                const tr = toolResults.get(block.id);
+                if (tr) parts.push({ type: 'tool_result', tool_use_id: tr.tool_use_id, content: tr.content, is_error: tr.is_error });
+              }
+            }
+          }
+          if (parts.length) messages.push({ role: 'assistant', content: parts.filter(p => p.type === 'text').map(p => p.text).join('\n'), parts });
         }
       } catch {}
     }
     res.json(messages);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// API: browse directories (Fix 5: folder picker)
+app.get('/api/browse', async (req, res) => {
+  try {
+    let target = req.query.path || '';
+    // Windows: if empty, list drive letters
+    if (!target && process.platform === 'win32') {
+      const { execSync } = await import('child_process');
+      const raw = execSync('wmic logicaldisk get name', { encoding: 'utf8' });
+      const drives = raw.split('\n').map(l => l.trim()).filter(l => /^[A-Z]:$/.test(l));
+      return res.json({ path: '', parent: '', dirs: drives.map(d => ({ name: d, path: d + '\\' })) });
+    }
+    if (!target) target = os.homedir();
+    const resolved = path.resolve(target);
+    const parent = path.dirname(resolved);
+    const entries = await fs.readdir(resolved, { withFileTypes: true }).catch(() => []);
+    const dirs = [];
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      if (ent.name.startsWith('.')) continue;
+      dirs.push({ name: ent.name, path: path.join(resolved, ent.name) });
+    }
+    dirs.sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ path: resolved, parent: parent !== resolved ? parent : '', dirs });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -326,6 +423,34 @@ app.get('/api/files', async (req, res) => {
       return items;
     }
     res.json(await scan(root, 0));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// API: flat file list for @ mentions
+app.get('/api/files-flat', async (req, res) => {
+  try {
+    const root = req.query.cwd || process.cwd();
+    const results = [];
+    const MAX = 1000;
+    async function scan(dir, depth) {
+      if (depth > 5 || results.length >= MAX) return;
+      const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+      for (const ent of entries) {
+        if (results.length >= MAX) return;
+        if (ent.name.startsWith('.') && ent.name !== '.env') continue;
+        const full = path.join(dir, ent.name);
+        const rel = path.relative(root, full).replace(/\\/g, '/');
+        if (ent.isDirectory()) {
+          if (SKIP_DIRS.has(ent.name)) continue;
+          results.push({ path: rel + '/', type: 'dir' });
+          await scan(full, depth + 1);
+        } else {
+          results.push({ path: rel, type: 'file' });
+        }
+      }
+    }
+    await scan(root, 0);
+    res.json(results);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -358,7 +483,6 @@ wss.on('connection', (ws) => {
           cwd: msg.cwd || null,
           model: msg.model || 'sonnet',
           permissionMode: msg.permissionMode || 'default',
-          apiBaseUrl: msg.apiBaseUrl || null,
           apiKey: msg.apiKey || null,
         }, ws).catch((e) => console.error('[query error]', e.message));
         break;
