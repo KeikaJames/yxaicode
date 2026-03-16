@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./codelogo.png" alt="YXCode Logo" width="120" height="120">
+<img src="https://ccnetcore.com/prod-api/wwwroot/codelogo.png" alt="YxAiCode Logo" width="120" height="120">
 
 # @yxai/code
 
@@ -143,6 +143,6 @@ PORT=8080 yxai
 
 <div align="center">
 
-Made with ❤️ by YXAI Team
+Made with ❤️ by yxai Team
 
 </div>

@@ -1,11 +1,11 @@
 <div align="center">
 
-<img src="./codelogo.png" alt="YXCode Logo" width="120" height="120">
+<img src=".https://ccnetcore.com/prod-api/wwwroot/codelogo.png" alt="YxAiCode Logo" width="120" height="120">
 
 # @yxai/code
 
 <p align="center">
-  <strong>YiXin Code</strong> - Zero-barrier Visual Lightweight Tool for Claude Code
+  <strong>YxAi Code</strong> - Zero-barrier Visual Lightweight Tool for Claude Code
 </p>
 
 <p align="center">
@@ -143,6 +143,6 @@ This project is self-developed by **YiXin AI Team + Claude + Claude Code** using
 
 <div align="center">
 
-Made with ❤️ by YXAI Team
+Made with ❤️ by YxAi Team
 
 </div>
