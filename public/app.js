@@ -113,6 +113,16 @@ function saveCwdToHistory(path) {
   }
 }
 
+function deleteCwdFromHistory(path) {
+  cwdHistory = cwdHistory.filter(p => p !== path);
+  try {
+    localStorage.setItem('yxcode_cwdHistory', JSON.stringify(cwdHistory));
+  } catch(e) {
+    console.error('[deleteCwdFromHistory]', e);
+  }
+  renderCwdDropdown();
+}
+
 function renderCwdDropdown() {
   cwdDropdown.innerHTML = '';
 
@@ -124,13 +134,33 @@ function renderCwdDropdown() {
   cwdHistory.forEach(path => {
     const item = document.createElement('div');
     item.className = 'cwd-dropdown-item';
-    item.innerHTML = `<span class="cwd-dropdown-item-icon">📁</span><span>${escHtml(path)}</span>`;
-    item.addEventListener('click', () => {
+    item.innerHTML = `
+      <span class="cwd-dropdown-item-icon">📁</span>
+      <span class="cwd-dropdown-item-text">${escHtml(path)}</span>
+      <button class="cwd-dropdown-delete" title="删除">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+        </svg>
+      </button>
+    `;
+
+    // Click path to select
+    const pathSpan = item.querySelector('.cwd-dropdown-item-text');
+    pathSpan.addEventListener('click', (e) => {
+      e.stopPropagation();
       cwdInput.value = path;
       cwdDropdown.classList.remove('show');
       localStorage.setItem('yxcode_cwd', path);
       loadFileTree();
     });
+
+    // Click delete button
+    const deleteBtn = item.querySelector('.cwd-dropdown-delete');
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteCwdFromHistory(path);
+    });
+
     cwdDropdown.appendChild(item);
   });
 }

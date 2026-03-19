@@ -129,7 +129,10 @@ async function runQuery(prompt, options, ws) {
     cwd: options.cwd || process.cwd(),
     tools: { type: 'preset', preset: 'claude_code' },
     systemPrompt: options.systemPrompt
-      ? { type: 'text', text: options.systemPrompt }
+      ? [
+          { type: 'preset', preset: 'claude_code' },
+          { type: 'text', text: options.systemPrompt }
+        ]
       : { type: 'preset', preset: 'claude_code' },
     settingSources: ['project', 'user', 'local'],
   };
