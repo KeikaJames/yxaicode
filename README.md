@@ -122,7 +122,7 @@ PORT=8080 yxai
 | 要求 | 版本 |
 |------|------|
 | Node.js | >= 22.0.0 |
-| Claude Code | 已安装（无需配置） |
+| Claude Code | 需前置安装（无需配置） |
 
 ---
 
@@ -141,6 +141,14 @@ PORT=8080 yxai
 - 🐛 问题反馈：如果是工具问题可提交 issue，意心Ai龙虾将会 24 小时审核并完成你的 issue~
 
 ---
+
+<a href="https://www.star-history.com/?repos=AIDotNet%2Fyxaicode&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=AIDotNet/yxaicode&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=AIDotNet/yxaicode&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=AIDotNet/yxaicode&type=date&legend=top-left" />
+ </picture>
+</a>
 
 <div align="center">
 
