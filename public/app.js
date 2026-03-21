@@ -110,6 +110,10 @@ let modelsData = []; // All available models
 let customModels = []; // User-added custom models
 let rememberedPermissions = new Set(); // Remembered permission rules
 let cwdHistory = []; // Working directory history (max 10)
+// 图片粘贴相关
+let pendingImages = []; // 待发送的图片 [{data, mediaType, name}]
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
 // ========== CWD History Management ==========
 function loadCwdHistory() {
@@ -1367,7 +1371,16 @@ function createMsgEl(role) {
   d.innerHTML=`<div class="role ${role==='assistant'?'streaming-dot':''}">${role==='user'?'你':'Claude'}</div><div class="content"></div>`;
   return d;
 }
-function appendUserMsg(t) { const e=createMsgEl('user'); e.querySelector('.content').textContent=t; messagesEl.appendChild(e); scrollBottom(); }
+function appendUserMsg(t, images) {
+  const e=createMsgEl('user'); const content=e.querySelector('.content');
+  if (images && images.length > 0) {
+    const imgHtml = images.map(img => `<img class="chat-image-thumb" src="data:${img.mediaType};base64,${img.data}" alt="图片" />`).join('');
+    content.innerHTML = imgHtml + escHtml(t);
+  } else {
+    content.textContent = t;
+  }
+  messagesEl.appendChild(e); scrollBottom();
+}
 function appendSystemMsg(t,type) {
   const d=document.createElement('div'); d.className='msg assistant';
   d.style.borderColor=type==='error'?'var(--red)':'var(--orange)';
@@ -1379,7 +1392,7 @@ function escHtml(s) { const d=document.createElement('div'); d.textContent=s||''
 
 // ========== Send / Abort / New ==========
 function send() {
-  const t=promptInput.value.trim(); if(!t||isStreaming) return;
+  const t=promptInput.value.trim(); if((!t && pendingImages.length===0)||isStreaming) return;
 
   // Intercept slash commands
   if (t.startsWith('/')) {
@@ -1439,16 +1452,18 @@ function send() {
 <user_message>${t}</user_message>`;
   }
 
-  appendUserMsg(t); promptInput.value='';
+  const images = pendingImages.length > 0 ? pendingImages.map(img => ({ data: img.data, mediaType: img.mediaType })) : null;
+  appendUserMsg(t, images); promptInput.value='';
   const baseUrl = localStorage.getItem('yxcode_baseUrl') || '';
-  wsSend({ type:'claude-command', prompt:finalPrompt, sessionId, cwd:cwdInput.value||null,
+  wsSend({ type:'claude-command', prompt:finalPrompt, images, sessionId, cwd:cwdInput.value||null,
     model:selectedModel.value, permissionMode:permSelect.value,
     apiKey, baseUrl });
+  pendingImages = []; renderImagePreviews();
   // 记住：女友模式只在新会话时生效一次，后续对话保持角色
   setStreaming(true);
 }
 function abort() { if(sessionId) wsSend({type:'abort-session',sessionId}); }
-function newSession() { sessionId=null; messagesEl.innerHTML=''; sessionInfo.textContent=''; finishStreaming(); setStreaming(false); renderSidebar(); }
+function newSession() { sessionId=null; messagesEl.innerHTML=''; sessionInfo.textContent=''; finishStreaming(); setStreaming(false); pendingImages=[]; renderImagePreviews(); renderSidebar(); }
 function setStreaming(v) {
   isStreaming=v; sendBtn.disabled=v; abortBtn.classList.toggle('hidden',!v); connStatus.className='status-dot '+(v?'busy':'online');
   if(v) showLoading(); else hideLoading();
@@ -1513,10 +1528,22 @@ sendBtn.addEventListener('click', send);
 abortBtn.addEventListener('click', abort);
 newBtn.addEventListener('click', newSession);
 
-// Drag-and-drop file path into chat input
+// Drag-and-drop file path / image into chat input
 promptInput.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
 promptInput.addEventListener('drop', (e) => {
   e.preventDefault();
+  // 处理拖入的图片文件
+  if (e.dataTransfer.files?.length) {
+    for (const file of e.dataTransfer.files) {
+      if (!file.type.startsWith('image/')) continue;
+      if (!ALLOWED_IMAGE_TYPES.includes(file.type)) { appendSystemMsg(`不支持的图片格式: ${file.type}`, 'error'); continue; }
+      if (file.size > MAX_IMAGE_SIZE) { appendSystemMsg(`图片过大 (${(file.size/1024/1024).toFixed(1)}MB)，最大 5MB`, 'error'); continue; }
+      const reader = new FileReader();
+      reader.onload = () => { pendingImages.push({ data: reader.result.split(',')[1], mediaType: file.type, name: file.name }); renderImagePreviews(); };
+      reader.readAsDataURL(file);
+    }
+    if ([...e.dataTransfer.files].some(f => f.type.startsWith('image/'))) return;
+  }
   const path = e.dataTransfer.getData('text/plain');
   if(path) {
     const pos = promptInput.selectionStart || promptInput.value.length;
@@ -1526,6 +1553,40 @@ promptInput.addEventListener('drop', (e) => {
     promptInput.selectionStart = promptInput.selectionEnd = pos + path.length;
   }
 });
+
+// 粘贴图片到输入框
+promptInput.addEventListener('paste', (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (!item.type.startsWith('image/')) continue;
+    e.preventDefault();
+    const file = item.getAsFile();
+    if (!file) continue;
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) { appendSystemMsg(`不支持的图片格式: ${file.type}`, 'error'); continue; }
+    if (file.size > MAX_IMAGE_SIZE) { appendSystemMsg(`图片过大 (${(file.size/1024/1024).toFixed(1)}MB)，最大 5MB`, 'error'); continue; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      pendingImages.push({ data: reader.result.split(',')[1], mediaType: file.type, name: file.name || `pasted-${pendingImages.length+1}.png` });
+      renderImagePreviews();
+    };
+    reader.readAsDataURL(file);
+  }
+});
+
+// 图片预览渲染
+function renderImagePreviews() {
+  const bar = document.getElementById('imagePreviewBar');
+  if (pendingImages.length === 0) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML = pendingImages.map((img, i) => `
+    <div class="image-preview-item" data-index="${i}">
+      <img src="data:${img.mediaType};base64,${img.data}" alt="${escHtml(img.name)}" />
+      <button class="image-preview-remove" onclick="window._removeImage(${i})" title="移除图片">✕</button>
+    </div>
+  `).join('');
+}
+window._removeImage = function(index) { pendingImages.splice(index, 1); renderImagePreviews(); };
 
 // Input event handlers for slash commands and @ mentions
 promptInput.addEventListener('keydown', e => {

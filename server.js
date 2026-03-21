@@ -166,11 +166,33 @@ async function runQuery(prompt, options, ws) {
     return { behavior: 'deny', message: decision.message ?? 'User denied' };
   };
 
-  // Start query
+  // Start query — 如果有图片，构建多部分内容格式
   const prev = process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
   process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '300000';
 
-  const qi = query({ prompt, options: sdkOpts });
+  let sdkPrompt;
+  if (options.images && options.images.length > 0) {
+    const contentParts = [];
+    for (const img of options.images) {
+      contentParts.push({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mediaType, data: img.data },
+      });
+    }
+    if (prompt) contentParts.push({ type: 'text', text: prompt });
+    const userMessage = {
+      type: 'user',
+      message: { role: 'user', content: contentParts },
+      parent_tool_use_id: null,
+      session_id: sessionId || '',
+    };
+    sdkPrompt = (async function*() { yield userMessage; })();
+    console.log(`[image] 发送 ${options.images.length} 张图片`);
+  } else {
+    sdkPrompt = prompt;
+  }
+
+  const qi = query({ prompt: sdkPrompt, options: sdkOpts });
 
   if (prev !== undefined) process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = prev;
   else delete process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
@@ -623,6 +645,7 @@ wss.on('connection', (ws) => {
           permissionMode: msg.permissionMode || 'default',
           apiKey: msg.apiKey || null,
           baseUrl: msg.baseUrl || null,
+          images: msg.images || null,
         }, ws).catch((e) => console.error('[query error]', e.message));
         break;
       }
