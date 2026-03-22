@@ -706,11 +706,22 @@ const TOOL_ICON = {
   girlfriendMode.addEventListener('change', () => {
     localStorage.setItem('yxcode_girlfriendMode', girlfriendMode.checked);
   });
-  settingsBtn.addEventListener('click', () => settingsOverlay.classList.remove('hidden'));
+  settingsBtn.addEventListener('click', () => { settingsOverlay.classList.remove('hidden'); renderPermissionList(); });
   settingsCloseBtn.addEventListener('click', () => settingsOverlay.classList.add('hidden'));
   settingsOverlay.addEventListener('click', e => { if(e.target===settingsOverlay) settingsOverlay.classList.add('hidden'); });
   settingsSaveBtn.addEventListener('click', saveSettings);
   clearPermissionsBtn.addEventListener('click', clearRememberedPermissions);
+
+  // Copy API Key button
+  document.getElementById('copyApiKeyBtn').addEventListener('click', () => {
+    const key = setApiKey.value;
+    if (!key) return;
+    navigator.clipboard.writeText(key).then(() => {
+      const btn = document.getElementById('copyApiKeyBtn');
+      btn.textContent = '✅';
+      setTimeout(() => { btn.textContent = '📋'; }, 1500);
+    });
+  });
 
   // Test Base URL connection
   testBaseUrlBtn.addEventListener('click', async () => {
@@ -775,7 +786,45 @@ function clearRememberedPermissions() {
   rememberedPermissions.clear();
   localStorage.removeItem('yxcode_rememberedPermissions');
   updatePermissionCount();
+  renderPermissionList();
   appendSystemMsg(`已清除 ${count} 条权限规则`);
+}
+
+function removePermissionRule(rule) {
+  rememberedPermissions.delete(rule);
+  if (rememberedPermissions.size > 0) {
+    localStorage.setItem('yxcode_rememberedPermissions', JSON.stringify([...rememberedPermissions]));
+  } else {
+    localStorage.removeItem('yxcode_rememberedPermissions');
+  }
+  updatePermissionCount();
+  renderPermissionList();
+  appendSystemMsg(`已删除权限规则：${rule}`);
+}
+
+function renderPermissionList() {
+  const list = document.getElementById('permissionList');
+  if (!list) return;
+  if (rememberedPermissions.size === 0) {
+    list.innerHTML = '<div class="permission-empty">暂无已记住的权限规则</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const rule of rememberedPermissions) {
+    const item = document.createElement('div');
+    item.className = 'permission-item';
+    const label = document.createElement('span');
+    label.className = 'permission-rule';
+    label.textContent = rule;
+    const delBtn = document.createElement('button');
+    delBtn.className = 'permission-delete-btn';
+    delBtn.title = '删除此权限';
+    delBtn.textContent = '✕';
+    delBtn.addEventListener('click', () => removePermissionRule(rule));
+    item.appendChild(label);
+    item.appendChild(delBtn);
+    list.appendChild(item);
+  }
 }
 
 function updatePermissionCount() {
