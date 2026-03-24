@@ -104,6 +104,7 @@ document.addEventListener('fullscreenchange', () => {
 
 let ws=null, sessionId=null, isStreaming=false, streamingEl=null, streamBuf='', flushTimer=null;
 let expandedProjects = new Set(); // Fix 6: track expanded sidebar projects
+let expandedFolders = new Set(); // Track expanded file tree folders
 let selectedModel = null; // Current selected model object
 let selectedSettingsModel = null; // Settings model selection
 let modelsData = []; // All available models
@@ -2090,17 +2091,19 @@ function renderFileTree(items, container, depth) {
       });
     });
     if(item.type === 'dir') {
-      row.innerHTML = `<span class="tree-icon">▶</span><span class="tree-name">📁 ${escHtml(item.name)}</span>`;
+      const wasExpanded = expandedFolders.has(item.path);
+      row.innerHTML = `<span class="tree-icon">${wasExpanded ? '▼' : '▶'}</span><span class="tree-name">📁 ${escHtml(item.name)}</span>`;
       row.appendChild(copyBtn);
       container.appendChild(row);
       const childContainer = document.createElement('div');
-      childContainer.className = 'tree-children';
+      childContainer.className = 'tree-children' + (wasExpanded ? ' open' : '');
       container.appendChild(childContainer);
       if(item.children?.length) renderFileTree(item.children, childContainer, depth + 1);
       row.addEventListener('click', (e) => {
         if(e.target.closest('.tree-copy-btn')) return;
-        childContainer.classList.toggle('open');
-        row.querySelector('.tree-icon').textContent = childContainer.classList.contains('open') ? '▼' : '▶';
+        const isOpen = childContainer.classList.toggle('open');
+        row.querySelector('.tree-icon').textContent = isOpen ? '▼' : '▶';
+        if(isOpen) expandedFolders.add(item.path); else expandedFolders.delete(item.path);
       });
     } else {
       const sizeStr = item.size > 1024 ? (item.size / 1024).toFixed(1) + 'K' : item.size + 'B';

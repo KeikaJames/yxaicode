@@ -219,6 +219,12 @@ async function runQuery(prompt, options, ws) {
     sdkPrompt = prompt;
   }
 
+  // Request log: address, model, time, role
+  const reqLogTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+  console.log(`[AI Request] 地址: ${effectiveBaseUrl} | 模型: ${sdkOpts.model} | 时间: ${reqLogTime}`);
+
+  let reqRole = 'user'; // Default role
+
   const qi = sdkQuery({ prompt: sdkPrompt, options: sdkOpts });
 
   if (prev !== undefined) process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = prev;
@@ -230,6 +236,11 @@ async function runQuery(prompt, options, ws) {
     for await (const msg of qi) {
       // Debug: log message types for streaming analysis
       console.log('[SDK msg]', msg.type, msg.subtype || '', msg.role || '', Array.isArray(msg.content) ? `content[${msg.content.length}]` : '');
+      // Log request role when first message arrives
+      if (!reqRole && msg.role) {
+        reqRole = msg.role;
+        console.log(`[AI Request] 地址: ${effectiveBaseUrl} | 模型: ${sdkOpts.model} | 时间: ${reqLogTime} | 角色: ${reqRole}`);
+      }
       // Capture session id
       if (msg.session_id && !sessionId) {
         sessionId = msg.session_id;
